@@ -94,6 +94,18 @@ class MinioStorage:
             content_type=content_type,
         )
 
+    def get_object_bytes(self, bucket_name: str, object_name: str) -> bytes:
+        """Read an object and always release MinIO's HTTP connection."""
+        response = self.client.get_object(bucket_name, object_name)
+        try:
+            return response.read()
+        finally:
+            response.close()
+            response.release_conn()
+
+    def remove_object(self, bucket_name: str, object_name: str) -> None:
+        self.client.remove_object(bucket_name, object_name)
+
     def get_presigned_url(self, method, bucket_name, object_name, expires=timedelta(days=7), response_headers=None, request_date=None,
                           version_id=None, extra_query_params=None) -> str:
         """

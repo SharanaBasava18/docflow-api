@@ -12,6 +12,9 @@ from dto.docflow_file_dto import (
     FileListItem,
     FileMetadataResponse,
     FileStatusResponse,
+    DeleteResponse,
+    DownloadLinkResponse,
+    RetryResponse,
     UploadChunkResponse,
     UploadCompleteResponse,
     UploadInitializeRequest,
@@ -23,7 +26,7 @@ from entities.organization import OrganizationMember
 from entities.upload_session import FileChunk, UploadSession, UploadSessionStatus
 from entities.user import User
 from infrastructure.minio import minioStorage
-from tasks.docflow_upload_task import finalize_upload_task
+from tasks.docflow_upload_task import cleanup_file_storage_task, finalize_upload_task
 
 
 class DocFlowFileService:
@@ -57,8 +60,25 @@ class DocFlowFileService:
         if file is None or file.organization_id != session.organization_id:
             # This is a data-integrity violation, not an authorization choice.
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Upload session is not linked to a valid file")
+        if file.is_deleted:
+            raise HTTPException(status_code=status.HTTP_410_GONE, detail="File has been deleted")
         self._membership_for(file.organization_id)
         return session
+
+    def _enqueue_finalization(self, file: File, upload_session: UploadSession) -> str:
+        try:
+            task = finalize_upload_task.delay(str(upload_session.id))
+        except Exception as error:
+            metadata = dict(file.file_metadata or {})
+            metadata["finalization_error"] = f"Unable to queue finalization: {str(error)[:500]}"
+            file.file_metadata = metadata
+            file.status = FileStatus.FAILED
+            upload_session.status = UploadSessionStatus.FAILED
+            self.db.commit()
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Unable to queue file finalization")
+        file.processing_task_id = task.id
+        self.db.commit()
+        return task.id
 
     @staticmethod
     def _safe_filename(filename: str) -> str:
@@ -210,13 +230,10 @@ class DocFlowFileService:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Uploaded chunk size does not match expected file size")
 
         file = upload_session.file
-        task = finalize_upload_task.delay(str(upload_session.id))
-        # The lifecycle transition and task ID are committed together. The
-        # Phase 3 task is a queue boundary and does not read the database yet.
         upload_session.status = UploadSessionStatus.ASSEMBLING
         file.status = FileStatus.PROCESSING
-        file.processing_task_id = task.id
         self.db.commit()
+        self._enqueue_finalization(file, upload_session)
         return UploadCompleteResponse(
             file_id=file.id,
             upload_session_id=upload_session.id,
@@ -249,7 +266,11 @@ class DocFlowFileService:
         statement = (
             select(File)
             .join(OrganizationMember, OrganizationMember.organization_id == File.organization_id)
-            .where(OrganizationMember.user_id == self.current_user.id)
+            .where(
+                OrganizationMember.user_id == self.current_user.id,
+                File.is_deleted.is_(False),
+                File.status != FileStatus.DELETED,
+            )
             .order_by(File.created_at.desc())
         )
         if organization_id is not None:
@@ -275,3 +296,73 @@ class DocFlowFileService:
     def get_file_metadata(self, file_id: UUID) -> FileMetadataResponse:
         file = self._file_for_access(file_id)
         return FileMetadataResponse.model_validate(file)
+
+    def retry_finalization(self, file_id: UUID) -> RetryResponse:
+        file = self._file_for_access(file_id)
+        upload_session = self.db.scalar(
+            select(UploadSession)
+            .where(UploadSession.file_id == file.id)
+            .order_by(UploadSession.created_at.desc())
+        )
+        if upload_session is None or file.status != FileStatus.FAILED or upload_session.status != UploadSessionStatus.FAILED:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="File finalization is not retryable")
+
+        chunks = self.db.scalars(
+            select(FileChunk).where(FileChunk.upload_session_id == upload_session.id).order_by(FileChunk.chunk_index)
+        ).all()
+        if (
+            [chunk.chunk_index for chunk in chunks] != list(range(upload_session.expected_chunk_count))
+            or sum(chunk.size_bytes for chunk in chunks) != upload_session.expected_size_bytes
+        ):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Uploaded chunks are not valid for retry")
+
+        upload_session.status = UploadSessionStatus.ASSEMBLING
+        file.status = FileStatus.PROCESSING
+        self.db.commit()
+        task_id = self._enqueue_finalization(file, upload_session)
+        return RetryResponse(
+            file_id=file.id,
+            upload_session_id=upload_session.id,
+            file_status=file.status,
+            upload_status=upload_session.status,
+            processing_task_id=task_id,
+        )
+
+    def soft_delete_file(self, file_id: UUID) -> DeleteResponse:
+        file = self.db.scalar(select(File).where(File.id == file_id).with_for_update())
+        if file is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
+        self._membership_for(file.organization_id)
+        if not file.is_deleted:
+            file.is_deleted = True
+            file.status = FileStatus.DELETED
+            active_sessions = self.db.scalars(select(UploadSession).where(UploadSession.file_id == file.id)).all()
+            for upload_session in active_sessions:
+                if upload_session.status in {
+                    UploadSessionStatus.INITIATED,
+                    UploadSessionStatus.UPLOADING,
+                    UploadSessionStatus.READY_TO_COMPLETE,
+                    UploadSessionStatus.ASSEMBLING,
+                }:
+                    upload_session.status = UploadSessionStatus.CANCELLED
+            self.db.commit()
+            try:
+                cleanup_file_storage_task.delay(str(file.id))
+            except Exception:
+                # The database deletion is authoritative; cleanup is retriable
+                # and must not turn a successful soft delete into a failure.
+                pass
+        return DeleteResponse(file_id=file.id, status=file.status, is_deleted=file.is_deleted)
+
+    def create_download_link(self, file_id: UUID) -> DownloadLinkResponse:
+        file = self._file_for_access(file_id)
+        if file.is_deleted or file.status != FileStatus.AVAILABLE:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="File is not available for download")
+        expires_at = datetime.now(timezone.utc) + timedelta(seconds=config.DOWNLOAD_LINK_EXPIRE_SECONDS)
+        url = minioStorage.get_presigned_url(
+            "GET",
+            bucket_name=file.storage_bucket,
+            object_name=file.storage_key,
+            expires=timedelta(seconds=config.DOWNLOAD_LINK_EXPIRE_SECONDS),
+        )
+        return DownloadLinkResponse(file_id=file.id, url=url, expires_at=expires_at)

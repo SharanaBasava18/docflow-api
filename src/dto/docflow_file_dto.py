@@ -43,6 +43,26 @@ class UploadCompleteResponse(BaseModel):
     upload_status: UploadSessionStatus
 
 
+class RetryResponse(BaseModel):
+    file_id: UUID
+    upload_session_id: UUID
+    file_status: FileStatus
+    upload_status: UploadSessionStatus
+    processing_task_id: str
+
+
+class DeleteResponse(BaseModel):
+    file_id: UUID
+    status: FileStatus
+    is_deleted: bool
+
+
+class DownloadLinkResponse(BaseModel):
+    file_id: UUID
+    url: str
+    expires_at: datetime
+
+
 class UploadSessionProgress(BaseModel):
     id: UUID
     status: UploadSessionStatus

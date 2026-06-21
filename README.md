@@ -1,94 +1,55 @@
 # DocFlow API
 
-[![codecov](https://codecov.io/github/hanieas/fastapi-file-management-service/graph/badge.svg?token=OGUBX46W31)](https://codecov.io/github/hanieas/fastapi-file-management-service)
+DocFlow API is a multi-tenant file upload and processing backend for SaaS applications. It combines JWT authentication, organization-scoped authorization, chunked MinIO uploads, PostgreSQL metadata, and Celery finalization jobs.
 
-## Table of Contents
-1. [Introduction](#introduction)
-2. [Technology Stack and Features](#technology-stack-and-features)
-3. [Why a Separate File Management Service?](#why-a-separate-file-management-service)
-4. [How to Use it?](#how-to-use-it)
-5. [API Endpoints](#api-endpoints)
-6. [Contributing](#Contributing)
+## Core capabilities
 
-## Introduction
+- JWT registration, login, and current-user authentication.
+- Organization membership authorization for every file operation.
+- Resumable chunked uploads backed by persistent upload sessions.
+- Asynchronous finalization: chunk assembly, SHA-256 checksum generation, and temporary-object cleanup.
+- Secure time-limited MinIO download links for finalized files.
+- Finalization retry and soft delete with asynchronous object cleanup.
 
-DocFlow API is a multi-tenant file upload and processing platform for SaaS applications. It uses **MinIO** for object storage and **PostgreSQL** for tenant, file, and upload metadata. Chunked upload processing remains a legacy compatibility workflow until its tenant-aware refactor.
+## Local setup
 
-## Technology Stack and Features
+1. Copy `src/.env.example` to `src/.env` and replace development secrets before any non-local deployment.
+2. Start dependencies and the API:
 
-- ⚡ [**FastAPI**](https://fastapi.tiangolo.com) for the Python backend API.
-- 🧰 [SQLAlchemy](https://www.sqlalchemy.org/) for the Python SQL database interactions (ORM).
-- 🔍 [Pydantic](https://docs.pydantic.dev), used by FastAPI, for the data validation and settings management.
-- PostgreSQL as the SQL database.
-- 🔄 [Alembic](https://alembic.sqlalchemy.org/en/latest) for database migrations.
-- 🔧 [Celery](https://docs.celeryq.dev/en/stable/) with [RabbitMQ](https://www.rabbitmq.com/) for task queue management and background processing.
-- 💾 [MinIO](https://min.io/) for scalable object storage with chunk upload support.
-- ✅ [Pytest](https://pytest.org) for testing to ensure code reliability and functionality.
-- 🐋 [Docker Compose](https://www.docker.com) for development and production.
-  
-## Why a Separate File Management Service?
+   ```bash
+   docker compose up -d --build
+   ```
 
-1. Centralizes file operations, making management and maintenance easier.
-2. Enables scaling file handling independently of other services.
-3. Simplifies updates and changes to file handling without impacting other parts of the system.
-4. Reduces code duplication by keeping file upload and retrieval logic in one place, resulting in cleaner code.
+3. Apply the PostgreSQL schema:
 
-## How to Use it?
+   ```bash
+   docker compose exec docflow-api alembic upgrade head
+   ```
 
-1. **Complete the `.env` File**: 
-    - Copy the contents of `.env.example` to a new file named `.env`.
-    - Fill in the required environment variables based on your setup.
+4. Open the OpenAPI UI at `http://localhost:8000/docs`.
 
-2. **Build the Docker Image**:
-    - Run the following command to build the Docker image:
-        ```bash
-        docker compose build
-        ```
+## Upload lifecycle
 
-3. **Run the Containers**:
-    - After the build is complete, start the containers in detached mode with:
-        ```bash
-        docker compose up -d
-        ```
+1. Register and log in through `/auth/register` and `/auth/login`.
+2. Create an organization and membership through application setup tooling (organization-management endpoints are outside this repository phase).
+3. Call `POST /files/upload/init` with the organization and expected file/chunk details.
+4. Upload chunks through `POST /files/upload/chunk` as multipart form data.
+5. Call `POST /files/upload/complete`. The API queues finalization and returns `202 Accepted`.
+6. Poll `GET /files/{file_id}/status` until the file becomes `available` or `failed`.
+7. For available files, request `POST /files/{file_id}/download-link`.
 
-4. **Migrate the Database**:
-    - Access the running container to perform the database migration:
-        ```bash
-        docker compose exec filemanager bash
-        ```
-    - Inside the container, run the migration using Alembic:
-        ```bash
-        alembic upgrade head
-        ```
+## File endpoints
 
-5. **Access the Service**:
-    - The project is now up and running, accessible on port `8000`.
-    - You can access the project documentation by navigating to `/docs` on your browser.
+| Method | Endpoint | Purpose |
+|---|---|---|
+| POST | `/files/upload/init` | Create a File and linked upload session. |
+| POST | `/files/upload/chunk` | Store one authenticated upload chunk. |
+| POST | `/files/upload/complete` | Validate chunks and queue finalization. |
+| GET | `/files` | List non-deleted files visible through membership. |
+| GET | `/files/{file_id}/status` | Get file and upload-session progress. |
+| GET | `/files/{file_id}/metadata` | Get safe file metadata. |
+| POST | `/files/{file_id}/retry` | Requeue a failed finalization when valid chunks remain. |
+| POST | `/files/{file_id}/download-link` | Create a time-limited download URL for an available file. |
+| DELETE | `/files/{file_id}` | Soft delete a file and queue object cleanup. |
 
-## API Endpoints
-
-Here’s a quick reference guide to the available API endpoints, their methods, and what they do:
-
-| Method | URL                                         | Description                                                      |
-|--------|---------------------------------------------|------------------------------------------------------------------|
-| POST   | `/api/v1/file/upload/init/`                 | Initialize a new file upload session.                            |
-| POST   | `/api/v1/file/upload/chunk/`                | Upload a file chunk.                                             |
-| POST   | `/api/v1/file/upload/complete/`             | Complete the file upload process.                                |
-| GET    | `/api/v1/file/get/{file_id}`                | Retrieve a file by its ID.                                       |
-| GET    | `/api/v1/file/status/{file_id}`             | Check the upload status of a file.                               |
-| POST   | `/api/v1/file/upload/retry`                 | Retry uploading a file.                                          |
-
-A Postman collection export is also available for testing these endpoints. You can import it into Postman to quickly get started with API testing.
-
-## Contributing
-
-We welcome contributions from everyone! If you have ideas for improvements, new features, or bug fixes, feel free to contribute to this project. Here's how you can get involved:
-
-1. **Create an Issue**: 
-    - If you find a bug, have a question, or want to suggest a feature, please open an issue. This helps us track and discuss your ideas.
-
-2. **Send a Pull Request (PR)**:
-    - Fork the repository, make your changes in a new branch, and then create a pull request. 
-    - Please make sure your code follows the project's coding standards and passes all tests.
-
-We appreciate your contributions and will do our best to review and merge your pull requests promptly. Thank you for helping us improve this project!
+The previously shipped legacy `/api/v1/file` workflow is not mounted by the application and must not be used.

@@ -18,6 +18,7 @@ class Config:
     APP_UPLOAD_DIR = os.getenv("APP_UPLOAD_DIR", str(Path("/tmp/docflow-uploads")))
     APP_MAX_CHUNK_SIZE = int(os.getenv("APP_MAX_CHUNK_SIZE", "10485760"))
     UPLOAD_SESSION_EXPIRE_MINUTES = int(os.getenv("UPLOAD_SESSION_EXPIRE_MINUTES", "1440"))
+    DOWNLOAD_LINK_EXPIRE_SECONDS = int(os.getenv("DOWNLOAD_LINK_EXPIRE_SECONDS", "900"))
 
     DATABASE_URL = os.getenv(
         "DATABASE_URL", "postgresql+psycopg://docflow:docflow@db-postgres:5432/docflow"

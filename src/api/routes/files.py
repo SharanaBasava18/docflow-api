@@ -8,6 +8,9 @@ from dto.docflow_file_dto import (
     FileListItem,
     FileMetadataResponse,
     FileStatusResponse,
+    DeleteResponse,
+    DownloadLinkResponse,
+    RetryResponse,
     UploadChunkResponse,
     UploadCompleteRequest,
     UploadCompleteResponse,
@@ -64,3 +67,18 @@ def get_file_status(file_id: UUID, service: DocFlowFileService = Depends(get_fil
 @router.get("/{file_id}/metadata", response_model=FileMetadataResponse)
 def get_file_metadata(file_id: UUID, service: DocFlowFileService = Depends(get_file_service)) -> FileMetadataResponse:
     return service.get_file_metadata(file_id)
+
+
+@router.post("/{file_id}/retry", response_model=RetryResponse, status_code=status.HTTP_202_ACCEPTED)
+def retry_file_finalization(file_id: UUID, service: DocFlowFileService = Depends(get_file_service)) -> RetryResponse:
+    return service.retry_finalization(file_id)
+
+
+@router.delete("/{file_id}", response_model=DeleteResponse)
+def delete_file(file_id: UUID, service: DocFlowFileService = Depends(get_file_service)) -> DeleteResponse:
+    return service.soft_delete_file(file_id)
+
+
+@router.post("/{file_id}/download-link", response_model=DownloadLinkResponse)
+def create_download_link(file_id: UUID, service: DocFlowFileService = Depends(get_file_service)) -> DownloadLinkResponse:
+    return service.create_download_link(file_id)
