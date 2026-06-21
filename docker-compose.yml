@@ -1,0 +1,70 @@
+version: "3.9"
+
+services:
+
+  docflow-api:
+    build:
+      dockerfile: Dockerfile
+      context: .
+    container_name: docflow-api
+    env_file:
+      - src/.env
+    ports:
+      - "8000:8000"
+    volumes:
+      - "./src:/var/www"
+      - "./docker-data/log/:/var/log"
+    networks:
+      - docflow
+    depends_on:
+      - db-postgres
+      - minio
+      - rabbitmq
+
+  minio:
+    image: minio/minio
+    container_name: minio
+    ports:
+      - "9001:9000" # api port - should not be exposed on production
+      - "9090:9090" # console port
+    volumes:
+      - ./docker-data/data/minio/:/data
+    env_file:
+      - src/.env
+    command: server --console-address ":9090" /data
+    networks:
+      - docflow
+
+  db-postgres:
+    image: postgres:16-alpine
+    container_name: docflow-postgres
+    env_file:
+      - src/.env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-docflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-docflow}
+      POSTGRES_DB: ${POSTGRES_DB:-docflow}
+    volumes:
+      - ./docker-data/data/postgres/:/var/lib/postgresql/data/
+      - ./src/infrastructure/db/init-postgres.sql:/docker-entrypoint-initdb.d/init-postgres.sql:ro
+    ports:
+      - 5432:5432 # Dont expose ports on production
+    networks:
+      - docflow
+
+  rabbitmq:
+    image: rabbitmq
+    container_name: rabbitmq
+    env_file:
+      - src/.env
+    ports:
+      - "5672:5672"   # RabbitMQ main port
+      - "15672:15672" # RabbitMQ management UI
+    volumes:
+      - ./docker-data/data/rabbitmq/:/var/lib/rabbitmq
+    networks:
+      - docflow
+
+networks:
+  docflow:
+    driver: bridge

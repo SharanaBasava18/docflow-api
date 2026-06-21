@@ -1,0 +1,42 @@
+name: Run Tests and Check Coverage
+
+on: [push, pull_request]
+
+jobs:
+  tests:
+    name: Run tests
+    runs-on: ubuntu-latest
+    env:
+      DOCKER_USER: ${{ secrets.DOCKER_USER }}
+      DOCKER_PASS: ${{ secrets.DOCKER_PASS }}
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Decode and create .env file
+      run: |
+        echo "${{ secrets.ENV_FILE_BASE64 }}" | base64 --decode > src/.env
+
+    - name: Login to DockerHub
+      run: docker login -u $DOCKER_USER -p $DOCKER_PASS
+    
+    - name: Build Docker images
+      run: docker compose build
+
+    - name: Run Containers
+      run: docker compose up -d
+
+    - name: Run tests
+      run: docker compose run filemanager bash -c "pytest --cov=. --cov-report=xml"
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        verbose: true
+        files: ./coverage.xml
+        fail_ci_if_error: true
+        token: ${{ secrets.CODECOV_TOKEN }}
+      
+    - name: Tear down Docker Compose
+      run: docker compose down
