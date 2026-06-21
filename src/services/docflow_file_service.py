@@ -45,11 +45,13 @@ class DocFlowFileService:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Organization membership is required")
         return membership
 
-    def _file_for_access(self, file_id: UUID) -> File:
+    def _file_for_access(self, file_id: UUID, *, allow_deleted: bool = False) -> File:
         file = self.db.get(File, file_id)
         if file is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
         self._membership_for(file.organization_id)
+        if file.is_deleted and not allow_deleted:
+            raise HTTPException(status_code=status.HTTP_410_GONE, detail="File has been deleted")
         return file
 
     def _session_for_access(self, upload_session_id: UUID) -> UploadSession:
@@ -242,7 +244,7 @@ class DocFlowFileService:
         )
 
     def get_file_status(self, file_id: UUID) -> FileStatusResponse:
-        file = self._file_for_access(file_id)
+        file = self._file_for_access(file_id, allow_deleted=True)
         upload_session = self.db.scalar(
             select(UploadSession)
             .where(UploadSession.file_id == file.id)

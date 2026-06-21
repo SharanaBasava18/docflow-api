@@ -14,5 +14,5 @@ class Celery:
 
 
 celery = Celery()
-celery.conf.database_engine_options = {'echo': True}
+celery.conf.database_engine_options = {'echo': False}
 celery.conf.update(result_extended=True)

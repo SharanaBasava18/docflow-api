@@ -1,55 +1,118 @@
 # DocFlow API
 
-DocFlow API is a multi-tenant file upload and processing backend for SaaS applications. It combines JWT authentication, organization-scoped authorization, chunked MinIO uploads, PostgreSQL metadata, and Celery finalization jobs.
+DocFlow API is a multi-tenant file upload and processing backend for SaaS applications. It provides JWT authentication, organization-scoped file access, chunked uploads to MinIO, PostgreSQL metadata, and Celery finalization jobs.
 
-## Core capabilities
+## Stack
 
-- JWT registration, login, and current-user authentication.
-- Organization membership authorization for every file operation.
-- Resumable chunked uploads backed by persistent upload sessions.
-- Asynchronous finalization: chunk assembly, SHA-256 checksum generation, and temporary-object cleanup.
-- Secure time-limited MinIO download links for finalized files.
-- Finalization retry and soft delete with asynchronous object cleanup.
+- FastAPI for the HTTP API
+- PostgreSQL, SQLAlchemy, and Alembic for persistence and migrations
+- JWT bearer authentication
+- MinIO for private object storage
+- RabbitMQ and Celery for async finalization and cleanup
+- Pytest for backend tests
 
-## Local setup
+## Current Scope
 
-1. Copy `src/.env.example` to `src/.env` and replace development secrets before any non-local deployment.
-2. Start dependencies and the API:
+DocFlow includes user registration/login/current-user endpoints, organization membership checks, file metadata records, upload sessions, chunk records, access-log schema, chunk upload, async finalization, retry, soft delete, and secure download-link generation.
+
+Organization-management endpoints are intentionally out of scope for this phase. Organizations and memberships can be created through setup scripts, direct database seeding, or future application tooling.
+
+## Local Setup
+
+1. Copy `src/.env.example` to `src/.env`.
+2. Replace `JWT_SECRET_KEY` before any non-local deployment.
+3. Start the API and dependencies:
 
    ```bash
    docker compose up -d --build
    ```
 
-3. Apply the PostgreSQL schema:
+   The `docflow-api` container runs both Uvicorn and a Celery worker through `supervisord`.
+
+4. Apply the database schema:
 
    ```bash
    docker compose exec docflow-api alembic upgrade head
    ```
 
-4. Open the OpenAPI UI at `http://localhost:8000/docs`.
+5. Open the API docs at `http://localhost:8000/docs`.
 
-## Upload lifecycle
+MinIO API is exposed locally on `http://localhost:9001`; the MinIO console is exposed on `http://localhost:9090`.
 
-1. Register and log in through `/auth/register` and `/auth/login`.
-2. Create an organization and membership through application setup tooling (organization-management endpoints are outside this repository phase).
-3. Call `POST /files/upload/init` with the organization and expected file/chunk details.
-4. Upload chunks through `POST /files/upload/chunk` as multipart form data.
-5. Call `POST /files/upload/complete`. The API queues finalization and returns `202 Accepted`.
-6. Poll `GET /files/{file_id}/status` until the file becomes `available` or `failed`.
-7. For available files, request `POST /files/{file_id}/download-link`.
+## Auth And Access Control
 
-## File endpoints
+All `/files` endpoints require a JWT bearer token. File operations are authorized through `OrganizationMember`: a user can only initialize uploads, list files, inspect metadata/status, retry, delete, or create download links for organizations they belong to.
 
-| Method | Endpoint | Purpose |
-|---|---|---|
-| POST | `/files/upload/init` | Create a File and linked upload session. |
-| POST | `/files/upload/chunk` | Store one authenticated upload chunk. |
-| POST | `/files/upload/complete` | Validate chunks and queue finalization. |
-| GET | `/files` | List non-deleted files visible through membership. |
-| GET | `/files/{file_id}/status` | Get file and upload-session progress. |
-| GET | `/files/{file_id}/metadata` | Get safe file metadata. |
-| POST | `/files/{file_id}/retry` | Requeue a failed finalization when valid chunks remain. |
-| POST | `/files/{file_id}/download-link` | Create a time-limited download URL for an available file. |
-| DELETE | `/files/{file_id}` | Soft delete a file and queue object cleanup. |
+Chunk upload authorization is derived from the upload session and linked file organization. The client does not provide a trusted organization id during chunk upload.
 
-The previously shipped legacy `/api/v1/file` workflow is not mounted by the application and must not be used.
+## Upload Workflow
+
+1. Register with `POST /auth/register`.
+2. Log in with `POST /auth/login` and use the returned access token.
+3. Create or seed an organization membership for the user.
+4. Start an upload with `POST /files/upload/init`.
+5. Upload each chunk with `POST /files/upload/chunk` as multipart form data:
+   - `upload_session_id`
+   - `chunk_index`
+   - `chunk_file`
+6. Complete the upload with `POST /files/upload/complete`.
+7. Poll `GET /files/{file_id}/status` until the file is `available` or `failed`.
+
+Completion validates that all expected chunk indexes exist and that the aggregate uploaded size matches the initialized expected size before finalization is queued.
+
+## Finalization Lifecycle
+
+After completion, the API marks the upload session `assembling` and the file `processing`, then queues `docflow.finalize_upload`.
+
+The worker:
+- loads the upload session and file
+- reads chunk objects from MinIO in chunk order
+- assembles the permanent object under the file storage key
+- computes and stores the SHA-256 checksum
+- marks the file `available` and session `completed`
+- removes temporary chunks on a best-effort basis
+
+If finalization fails, the worker marks the file and upload session `failed` and stores failure details in `file_metadata`.
+
+## Retry, Delete, And Download Links
+
+- `POST /files/{file_id}/retry` requeues finalization only when both the file and latest upload session are failed and the chunk set is still valid.
+- `DELETE /files/{file_id}` soft deletes the file, marks active upload sessions cancelled, excludes the file from normal listings, and queues best-effort object cleanup.
+- `POST /files/{file_id}/download-link` returns a time-limited MinIO presigned URL only for available, non-deleted files.
+
+Deleted files are rejected for metadata, retry, and download-link flows. The status endpoint remains callable so clients can see that a known file has been deleted.
+
+## Tests
+
+Install dependencies inside the API environment, then run:
+
+```bash
+cd src
+python -m pytest -q
+```
+
+The current test suite focuses on the active DocFlow API and mocked service/task behavior, so it can run without live MinIO, RabbitMQ, or PostgreSQL services once Python dependencies are installed:
+- unauthorized file access
+- organization membership enforcement
+- upload init/chunk/complete validation
+- retry lifecycle rules
+- soft delete lifecycle rules
+- secure download-link eligibility
+- finalization success and failure paths
+
+## Environment
+
+Important settings in `src/.env.example`:
+
+- `DATABASE_URL` and `TEST_DATABASE_URL`
+- `JWT_SECRET_KEY`, `JWT_ALGORITHM`, `JWT_ACCESS_TOKEN_EXPIRE_MINUTES`
+- `MINIO_ENDPOINT`, `MINIO_URL`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`
+- `MINIO_PRIVATE_BUCKET`
+- `RABBITMQ_*`
+- `APP_MAX_CHUNK_SIZE`
+- `UPLOAD_SESSION_EXPIRE_MINUTES`
+- `DOWNLOAD_LINK_EXPIRE_SECONDS`
+
+## Notes
+
+The old template upload API has been removed from the active source tree. The supported workflow is the DocFlow `/files` API described above.

@@ -58,7 +58,7 @@ class MinioStorage:
         """
         self.client.make_bucket(bucket_name, location, object_lock)
 
-    def put_object(self, bucket_name, object_name, data, length, content_type="application/octet-stream", metadate=None,
+    def put_object(self, bucket_name, object_name, data, length, content_type="application/octet-stream", metadata=None,
                    sse=None, progress=None, part_size=0, num_parallel_uploads=3, tags=None, retention=None, legal_hold=False) -> ObjectWriteResult:
         """
         Uploads data from a stream to an object in a bucket.
@@ -81,7 +81,7 @@ class MinioStorage:
         """
         if not self.bucket_exists(bucket_name=bucket_name):
             self.create_bucket(bucket_name=bucket_name)
-        return self.client.put_object(bucket_name, object_name, data, length, content_type, metadate, sse, progress, part_size,
+        return self.client.put_object(bucket_name, object_name, data, length, content_type, metadata, sse, progress, part_size,
                                       num_parallel_uploads, tags, retention, legal_hold)
 
     def put_bytes(self, bucket_name: str, object_name: str, content: bytes, content_type: str) -> ObjectWriteResult:
