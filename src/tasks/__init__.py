@@ -3,5 +3,4 @@ from infrastructure.minio import minioStorage
 from core.config import config
 import os
 
-from . import file_upload_task
-
+from . import docflow_upload_task

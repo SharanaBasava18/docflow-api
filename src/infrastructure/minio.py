@@ -1,4 +1,5 @@
 from datetime import timedelta
+from io import BytesIO
 from core.config import config
 from minio import Minio
 from minio.helpers import ObjectWriteResult
@@ -82,6 +83,16 @@ class MinioStorage:
             self.create_bucket(bucket_name=bucket_name)
         return self.client.put_object(bucket_name, object_name, data, length, content_type, metadate, sse, progress, part_size,
                                       num_parallel_uploads, tags, retention, legal_hold)
+
+    def put_bytes(self, bucket_name: str, object_name: str, content: bytes, content_type: str) -> ObjectWriteResult:
+        """Store a small upload chunk at an explicit object-storage key."""
+        return self.put_object(
+            bucket_name=bucket_name,
+            object_name=object_name,
+            data=BytesIO(content),
+            length=len(content),
+            content_type=content_type,
+        )
 
     def get_presigned_url(self, method, bucket_name, object_name, expires=timedelta(days=7), response_headers=None, request_date=None,
                           version_id=None, extra_query_params=None) -> str:

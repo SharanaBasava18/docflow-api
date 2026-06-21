@@ -1,6 +1,7 @@
 fastapi==0.111.1
 uvicorn[standard]==0.30.3
 python-dotenv==1.0.1
+python-multipart==0.0.9
 minio==7.2.7
 sqlalchemy==2.0.31
 psycopg[binary]==3.2.1
