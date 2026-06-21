@@ -1,10 +1,8 @@
 {
 	"info": {
 		"_postman_id": "61934e60-d9c4-4b89-91eb-7491641702fa",
-		"name": "microservices",
-		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-		"_exporter_id": "1946064",
-		"_collection_link": "https://nevis6.postman.co/workspace/Nevis-Workspace~7226aff7-af62-473c-b7f0-fb4d508aea1a/collection/1946064-61934e60-d9c4-4b89-91eb-7491641702fa?action=share&source=collection_link&creator=1946064"
+		"name": "DocFlow API",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 	},
 	"item": [
 		{
@@ -99,7 +97,7 @@
 								{
 									"key": "file",
 									"type": "file",
-									"src": "/Users/haniyeh/Documents/files/3/segmentaa"
+									"src": "sample-files/segmentaa"
 								},
 								{
 									"key": "upload_id",
@@ -148,7 +146,7 @@
 										{
 											"key": "file",
 											"type": "file",
-											"src": "/Users/haniyeh/Documents/files/3/segmentaa"
+											"src": "sample-files/segmentaa"
 										},
 										{
 											"key": "upload_id",
@@ -220,7 +218,7 @@
 										{
 											"key": "file",
 											"type": "file",
-											"src": "/Users/haniyeh/Documents/files/3/segmentab"
+											"src": "sample-files/segmentab"
 										},
 										{
 											"key": "upload_id",
@@ -292,7 +290,7 @@
 										{
 											"key": "file",
 											"type": "file",
-											"src": "/Users/haniyeh/Documents/files/3/segmentac"
+											"src": "sample-files/segmentac"
 										},
 										{
 											"key": "upload_id",
@@ -364,7 +362,7 @@
 										{
 											"key": "file",
 											"type": "file",
-											"src": "/Users/haniyeh/Documents/files/3/segmentac"
+											"src": "sample-files/segmentac"
 										},
 										{
 											"key": "upload_id",
@@ -436,7 +434,7 @@
 										{
 											"key": "file",
 											"type": "file",
-											"src": "/Users/haniyeh/Documents/files/3/segmentac"
+											"src": "sample-files/segmentac"
 										},
 										{
 											"key": "upload_id",

@@ -2,6 +2,8 @@
 
 DocFlow API is a multi-tenant file upload and processing backend for SaaS applications. It provides JWT authentication, organization-scoped file access, chunked uploads to MinIO, PostgreSQL metadata, and Celery finalization jobs.
 
+Built and maintained by Sharanabasava.
+
 ## Stack
 
 - FastAPI for the HTTP API
